@@ -15,6 +15,7 @@ import {
   ClipboardList,
   Globe,
   Boxes,
+  Workflow,
 } from "lucide-react";
 import { useRole } from "@/lib/role-context";
 import { Role } from "@/lib/types";
@@ -37,6 +38,7 @@ const NAV: NavItem[] = [
   { href: "/control-tower", label: "Control Tower", icon: Globe, roles: ["client-admin", "ops"] },
   { href: "/shipments", label: "Shipments", icon: Truck, roles: ["client-admin", "ops"] },
   { href: "/analytics", label: "Analytics", icon: BarChart3, roles: ["client-admin", "ops"] },
+  { href: "/admin/tms", label: "TMS Handover", icon: Workflow, roles: ["ops"] },
   { href: "/admin/rules", label: "Booking Rules", icon: FileSpreadsheet, roles: ["ops"] },
   { href: "/admin/templates", label: "Critical Path Templates", icon: Compass, roles: ["ops"] },
   { href: "/admin/accounts", label: "Supplier & Agent Accounts", icon: Users, roles: ["ops"] },

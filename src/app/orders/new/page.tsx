@@ -1,13 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowLeft, Plus, Trash2, FileSpreadsheet, FileCode2, Globe } from "lucide-react";
+import { ArrowLeft, Plus, Trash2, FileSpreadsheet, FileCode2, Globe, Network } from "lucide-react";
 import { PageHeader, Pill, SectionHeading } from "@/components/ui";
 import { SUPPLIERS, AGENTS } from "@/lib/seed";
 import { useState } from "react";
 
 export default function NewPOPage() {
-  const [channel, setChannel] = useState<"Portal" | "CSV" | "XML" | "API">("Portal");
+  const [channel, setChannel] = useState<"Portal" | "CSV" | "EDI" | "XML" | "API">("Portal");
   const [lines, setLines] = useState([{ code: "", desc: "", qty: 0, price: 0 }]);
 
   return (
@@ -19,11 +19,12 @@ export default function NewPOPage() {
       <PageHeader title="New Purchase Order" subtitle="Manual portal entry — for smaller volumes or one-off corrections" />
 
       <div className="horizon-panel rounded-3xl p-5 sm:p-6 mb-6">
-        <SectionHeading title="Or import from another channel" />
-        <div className="mt-4 grid gap-3 sm:grid-cols-3">
+        <SectionHeading title="Or import from another channel" subtitle="All four ingestion channels feed the same internal order model. Every channel supports create, amend, and cancel." />
+        <div className="mt-4 grid gap-3 grid-cols-2 lg:grid-cols-4">
           {[
             { id: "CSV" as const, icon: FileSpreadsheet, label: "Upload CSV", desc: "Pro Carrier-defined template" },
-            { id: "XML" as const, icon: FileCode2, label: "Upload XML", desc: "Per-client ERP mapping" },
+            { id: "EDI" as const, icon: Network, label: "EDI", desc: "EDIFACT / X12 — configured per client" },
+            { id: "XML" as const, icon: FileCode2, label: "Interchange XML", desc: "Per-client ERP file mapping" },
             { id: "API" as const, icon: Globe, label: "API ingestion", desc: "Live ERP push (already configured)" },
           ].map((c) => {
             const Icon = c.icon;

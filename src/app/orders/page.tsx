@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { Search, ShoppingCart, FileSpreadsheet, FileCode2, ChevronRight } from "lucide-react";
+import { Search, ShoppingCart, FileSpreadsheet, FileCode2, ChevronRight, Download } from "lucide-react";
 import { PageHeader, POStatusPill, Pill, SectionHeading } from "@/components/ui";
 import { PURCHASE_ORDERS, SUPPLIERS } from "@/lib/seed";
 import { POStatus, TransportMode } from "@/lib/types";
@@ -61,6 +61,7 @@ export default function OrdersPage() {
               <Link href="/orders/new" className="btn-primary"><ShoppingCart size={16} /> New PO</Link>
               <button className="btn-ghost"><FileSpreadsheet size={16} /> Upload CSV</button>
               <button className="btn-ghost"><FileCode2 size={16} /> Upload XML</button>
+              <button className="btn-ghost"><Download size={16} /> Export</button>
             </div>
           ) : null
         }

@@ -1,12 +1,15 @@
 "use client";
 
+import { useState } from "react";
 import { Globe, Plus, Anchor, Plane, Package, MapPin } from "lucide-react";
 import { PageHeader, Pill, SectionHeading } from "@/components/ui";
+import { Modal, ModalField } from "@/components/modal";
 import { THIRD_PARTY_SHIPMENTS, PURCHASE_ORDERS } from "@/lib/seed";
 import { formatDate } from "@/lib/format";
 
 export default function ControlTowerPage() {
   const proCarrierShipments = PURCHASE_ORDERS.filter((p) => p.shipmentId).slice(0, 6);
+  const [addOpen, setAddOpen] = useState(false);
 
   return (
     <>
@@ -15,9 +18,40 @@ export default function ControlTowerPage() {
         title="Control Tower"
         subtitle="Pro Carrier shipments alongside third-party forwarder movements — clearly tagged, never blended."
         trailing={
-          <button className="btn-primary"><Plus size={16} /> Add 3rd-party shipment</button>
+          <button className="btn-primary" onClick={() => setAddOpen(true)}><Plus size={16} /> Add 3rd-party shipment</button>
         }
       />
+
+      <Modal
+        open={addOpen}
+        onClose={() => setAddOpen(false)}
+        title="Add a third-party shipment"
+        subtitle="Enter the carrier reference — OceanIO (sea) and TrackingMore (air) enrich vessel, container, and milestone data automatically."
+        size="lg"
+        footer={
+          <>
+            <button className="btn-ghost" onClick={() => setAddOpen(false)}>Cancel</button>
+            <button className="btn-primary" onClick={() => setAddOpen(false)}><Globe size={16} /> Add &amp; start tracking</button>
+          </>
+        }
+      >
+        <div className="grid gap-4 sm:grid-cols-2">
+          <ModalField label="Carrier"><input className="input" placeholder="Maersk" /></ModalField>
+          <ModalField label="SCAC code"><input className="input" placeholder="MAEU" /></ModalField>
+          <ModalField label="Mode">
+            <select className="input"><option>Sea</option><option>Air</option></select>
+          </ModalField>
+          <ModalField label="Master Bill of Lading"><input className="input" placeholder="MAEU123456789" /></ModalField>
+          <ModalField label="Container / flight ref"><input className="input" placeholder="MSKU1234567" /></ModalField>
+          <ModalField label="Port of loading"><input className="input" placeholder="Shanghai, CN" /></ModalField>
+          <ModalField label="Port of discharge"><input className="input" placeholder="Felixstowe, UK" /></ModalField>
+          <ModalField label="ETD"><input type="date" className="input" /></ModalField>
+          <ModalField label="ETA"><input type="date" className="input" /></ModalField>
+        </div>
+        <div className="mt-4 rounded-xl bg-teal-10/50 p-3 text-[12px] text-teal-shade">
+          Once added, this shipment appears in <span className="font-semibold">My Shipments</span> tagged <span className="font-semibold">Third-Party</span> on the map, list, and timeline — never blended with Pro Carrier moves.
+        </div>
+      </Modal>
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4 mb-8">
         <ControlTile icon={<Anchor size={22} />} label="Pro Carrier — sea" value={proCarrierShipments.filter((p) => p.mode === "Sea").length} accent="#322a6d" />

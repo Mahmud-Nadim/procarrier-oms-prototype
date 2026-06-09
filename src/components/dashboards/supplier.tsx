@@ -5,7 +5,7 @@ import {
   ShoppingCart, AlertTriangle, ArrowRight, ChevronRight, FileUp,
   Boxes, Calendar, MessageCircle, CheckCircle2,
 } from "lucide-react";
-import { PageHeader, StatsCard, POStatusPill, Pill, SectionHeading, MilestoneStatusPill } from "@/components/ui";
+import { PageHeader, StatsCard, POStatusPill, Pill, SectionHeading, MilestoneStatusPill, BookingStatusPill } from "@/components/ui";
 import { PURCHASE_ORDERS, MILESTONES, EXCEPTIONS, SUPPLIERS, BOOKING_REQUESTS } from "@/lib/seed";
 import { useRole } from "@/lib/role-context";
 import { formatCurrency, formatDate, formatNumber, relativeFromToday } from "@/lib/format";
@@ -137,7 +137,7 @@ export function SupplierDashboard() {
                     <td>{b.mode}</td>
                     <td className="hidden md:table-cell">{formatDate(b.cargoReadyDate)}</td>
                     <td>{formatNumber(b.units)}</td>
-                    <td><Pill tone="green">{b.status}</Pill></td>
+                    <td><BookingStatusPill status={b.status} /></td>
                     <td><ChevronRight size={16} className="text-ink-muted" /></td>
                   </tr>
                 ))}

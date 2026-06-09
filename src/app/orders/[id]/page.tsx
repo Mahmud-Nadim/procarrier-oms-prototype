@@ -13,16 +13,18 @@ import {
   SUPPLIERS, AGENTS,
 } from "@/lib/seed";
 import { PageHeader, POStatusPill, Pill, SeverityPill, BookingStatusPill, SectionHeading } from "@/components/ui";
+import { Modal, ModalField } from "@/components/modal";
 import { CriticalPathView } from "@/components/critical-path-view";
 import { formatCurrency, formatDate, formatDateTime, formatNumber, relativeFromToday } from "@/lib/format";
 import { useRole } from "@/lib/role-context";
 
 import type { LucideIcon } from "lucide-react";
-type Tab = "overview" | "lines" | "critical-path" | "documents" | "activity";
+type Tab = "overview" | "lines" | "critical-path" | "exceptions" | "documents" | "activity";
 const TABS: { id: Tab; label: string; icon: LucideIcon }[] = [
   { id: "overview", label: "Overview", icon: Package },
   { id: "lines", label: "PO Lines", icon: Boxes },
   { id: "critical-path", label: "Critical Path", icon: Compass },
+  { id: "exceptions", label: "Exceptions", icon: AlertTriangle },
   { id: "documents", label: "Documents", icon: FileText },
   { id: "activity", label: "Activity", icon: History },
 ];
@@ -38,12 +40,62 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
   const agent = AGENTS.find((a) => a.id === po.agentId);
   const { role } = useRole();
   const [tab, setTab] = useState<Tab>("overview");
+  const [readExc, setReadExc] = useState<Set<string>>(new Set());
+  const [cancelOpen, setCancelOpen] = useState(false);
+  const [uploadOpen, setUploadOpen] = useState(false);
 
   return (
     <>
       <Link href="/orders" className="mb-4 inline-flex items-center gap-1.5 text-[12px] font-semibold text-ink-muted hover:text-midnight">
         <ArrowLeft size={14} /> Back to orders
       </Link>
+
+      <Modal
+        open={cancelOpen}
+        onClose={() => setCancelOpen(false)}
+        size="sm"
+        title={`Cancel ${po.id}?`}
+        subtitle="Cancelling reconciles against any active booking and is recorded with full version history."
+        footer={
+          <>
+            <button className="btn-ghost" onClick={() => setCancelOpen(false)}>Keep PO</button>
+            <button className="btn-primary bg-fuchsia" style={{ background: "#e83271" }} onClick={() => setCancelOpen(false)}><X size={16} /> Cancel PO</button>
+          </>
+        }
+      >
+        <div className="rounded-xl bg-[#fce9f0] p-3 text-[12px] text-[#7e133a]">
+          {booking
+            ? `This PO has booking ${booking.bookingReference ?? "(pending)"}. Cancelling will flag the booking for review to avoid dead freight.`
+            : "No active booking — this PO can be cancelled cleanly."}
+        </div>
+        <div className="mt-3">
+          <label className="label">Reason (recorded on the version history)</label>
+          <select className="input mt-1"><option>Order withdrawn by client</option><option>Duplicate PO</option><option>Replaced by amendment</option><option>Supplier unable to fulfil</option></select>
+        </div>
+      </Modal>
+
+      <Modal
+        open={uploadOpen}
+        onClose={() => setUploadOpen(false)}
+        title="Upload a document"
+        subtitle="Packing lists, QC reports, certificates, and commercial invoices — relevant to this PO. Suppliers and agents can upload too."
+        footer={
+          <>
+            <button className="btn-ghost" onClick={() => setUploadOpen(false)}>Cancel</button>
+            <button className="btn-primary" onClick={() => setUploadOpen(false)}><Upload size={16} /> Upload</button>
+          </>
+        }
+      >
+        <div className="rounded-2xl border border-dashed border-midnight-25 p-6 text-center text-[13px] text-ink-muted">
+          Drag &amp; drop a PDF here, or click to browse.
+        </div>
+        <div className="mt-4 grid gap-4 sm:grid-cols-2">
+          <ModalField label="Document type">
+            <select className="input"><option>Packing List</option><option>QC Report</option><option>Certificate</option><option>Commercial Invoice</option><option>Other</option></select>
+          </ModalField>
+          <ModalField label="Reference / name"><input className="input" placeholder="Packing list — PO lines 1–4" /></ModalField>
+        </div>
+      </Modal>
 
       <div className="horizon-panel rounded-3xl p-5 sm:p-6 mb-6">
         <div className="flex flex-wrap items-start justify-between gap-4">
@@ -68,7 +120,7 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
           {(role === "client-admin" || role === "ops") && (
             <div className="flex flex-wrap gap-2">
               <button className="btn-ghost"><FileSpreadsheet size={16} /> Amend</button>
-              <button className="btn-ghost text-fuchsia-shade"><X size={16} /> Cancel</button>
+              <button className="btn-ghost text-fuchsia-shade" onClick={() => setCancelOpen(true)}><X size={16} /> Cancel</button>
               <button className="btn-primary"><Download size={16} /> Export</button>
             </div>
           )}
@@ -222,9 +274,67 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
         </div>
       )}
 
+      {tab === "exceptions" && (
+        <div className="horizon-panel rounded-3xl p-5 sm:p-6">
+          <SectionHeading
+            title="Exceptions"
+            subtitle="Raised only when a change impacts the next milestone. Acknowledge with mark-as-read — chat is not available at PO level at launch."
+            trailing={<Pill tone={exceptions.length ? "fuchsia" : "green"}>{exceptions.length} total</Pill>}
+          />
+          {exceptions.length === 0 ? (
+            <div className="mt-4 rounded-2xl bg-[#e8f5e0] p-4 text-[13px] font-medium text-[#356b2a]">No exceptions on this order — every milestone is within its buffer.</div>
+          ) : (
+            <div className="mt-4 space-y-3">
+              {exceptions.map((e) => {
+                const linked = milestones.find((m) => m.exceptionId === e.id);
+                const read = readExc.has(e.id);
+                return (
+                  <div key={e.id} className="grid gap-3 rounded-2xl border border-midnight-10/60 bg-white/70 p-4 md:grid-cols-2">
+                    {/* Left — what changed (timeline-style) */}
+                    <div className="md:border-r md:border-midnight-10/50 md:pr-4">
+                      <div className="text-[10px] font-bold uppercase tracking-wider text-ink-muted">What changed</div>
+                      {linked ? (
+                        <div className="mt-1.5">
+                          <div className="font-semibold text-midnight text-[13px]">{linked.label}</div>
+                          <div className="mt-1 text-[12px] text-ink-muted">
+                            Expected {formatDate(linked.expectedDate)}{linked.actualDate ? ` → actual ${formatDate(linked.actualDate)}` : ""}
+                          </div>
+                          <div className="mt-1"><Pill tone="muted">Owner: {linked.owner}</Pill></div>
+                        </div>
+                      ) : (
+                        <div className="mt-1.5 text-[12px] text-ink-muted">Order-level exception</div>
+                      )}
+                    </div>
+                    {/* Right — the exception */}
+                    <div>
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <span className="text-[12px] font-bold uppercase tracking-wider text-fuchsia-shade">{e.type}</span>
+                          <SeverityPill severity={e.severity} />
+                          <Pill tone={e.status === "Open" ? "fuchsia" : e.status === "Acknowledged" ? "orange" : "green"}>{e.status}</Pill>
+                        </div>
+                        {read ? (
+                          <Pill tone="green">Read</Pill>
+                        ) : (
+                          <button onClick={() => setReadExc(new Set(readExc).add(e.id))} className="rounded-full bg-white px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-fuchsia-shade hover:bg-fuchsia-10">
+                            Mark as read
+                          </button>
+                        )}
+                      </div>
+                      <div className="mt-2 text-[13px] text-ink">{e.description}</div>
+                      <div className="mt-1.5 text-[11px] text-ink-muted">Raised {formatDateTime(e.raisedAt)} · owner {e.ownerRole}</div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
       {tab === "documents" && (
         <div className="horizon-panel rounded-3xl p-5 sm:p-6">
-          <SectionHeading title="Documents" trailing={<button className="btn-primary"><Upload size={14} /> Upload</button>} />
+          <SectionHeading title="Documents" trailing={<button className="btn-primary" onClick={() => setUploadOpen(true)}><Upload size={14} /> Upload</button>} />
           <div className="mt-4 grid gap-3 md:grid-cols-2">
             {po.documents.length === 0 && (
               <div className="rounded-2xl border border-dashed border-midnight-25 p-6 text-center text-[13px] text-ink-muted">
