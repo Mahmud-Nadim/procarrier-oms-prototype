@@ -3,3 +3,7 @@ node_modules
 out
 .env*.local
 .DS_Store
+
+# TS build cache
+*.tsbuildinfo
+tsconfig.tsbuildinfo
