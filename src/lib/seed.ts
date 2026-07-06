@@ -9,6 +9,7 @@ import {
   BookingRequest,
   BookingRule,
   CriticalPathTemplate,
+  ExceptionAuditEntry,
   ExceptionRecord,
   Milestone,
   Notification,
@@ -366,19 +367,39 @@ function buildPO(cfg: POSeedConfig): {
     };
   });
 
-  // Exceptions
+  // Exceptions — every exception is visible to BOTH parties; each resolves for
+  // their own view. "Resolved" seed rows are resolved by both parties.
   const exceptions: ExceptionRecord[] =
-    (cfg.exceptions ?? []).map((e, i) => ({
-      id: `${cfg.id}-EX${i + 1}`,
-      poId: cfg.id,
-      type: e.type,
-      severity: e.severity,
-      raisedAt: shiftToday(-e.daysAgo) + "T08:15:00Z",
-      description: e.description,
-      ownerRole: "Forwarder",
-      status: e.status ?? "Open",
-      notes: ["System: " + e.description],
-    }));
+    (cfg.exceptions ?? []).map((e, i) => {
+      const raisedAt = shiftToday(-e.daysAgo) + "T08:15:00Z";
+      const isResolved = e.status === "Resolved";
+      const audit: ExceptionAuditEntry[] = [
+        { at: raisedAt, by: "System", party: "Pro Carrier Ops", action: "raised", note: e.description },
+      ];
+      let pcResolvedAt: string | undefined;
+      let clientResolvedAt: string | undefined;
+      if (isResolved) {
+        pcResolvedAt = shiftToday(-Math.max(0, e.daysAgo - 2)) + "T15:40:00Z";
+        clientResolvedAt = shiftToday(-Math.max(0, e.daysAgo - 3)) + "T09:10:00Z";
+        audit.push(
+          { at: pcResolvedAt, by: "James Coombs (PC Ops)", party: "Pro Carrier Ops", action: "resolved", note: "ETA updated and confirmed" },
+          { at: clientResolvedAt, by: "Eleanor Hartwell (Client Admin)", party: "Client", action: "resolved", note: "Acknowledged on client side" },
+        );
+      }
+      return {
+        id: `${cfg.id}-EX${i + 1}`,
+        poId: cfg.id,
+        type: e.type,
+        severity: e.severity,
+        status: isResolved ? ("Resolved" as const) : ("Open" as const),
+        raisedAt,
+        description: e.description,
+        pcResolvedAt,
+        clientResolvedAt,
+        notes: ["System: " + e.description],
+        audit,
+      };
+    });
 
   // Versions
   const versionCount = cfg.versions ?? 1;
@@ -391,20 +412,33 @@ function buildPO(cfg: POSeedConfig): {
     channel: cfg.channel,
   }));
 
-  // Booking
+  // Booking — launch flow has NO rule automation. A supplier or agent raises a
+  // request; a Pro Carrier Ops user approves (Confirmed) or rejects it. Accepted
+  // POs sit as Pending (awaiting PC Ops); Booked+ POs are already Confirmed.
   let booking: BookingRequest | undefined;
   if (!cfg.bookingMissing && cfg.status !== "Pending Acceptance" && cfg.status !== "Draft" && cfg.status !== "Cancelled") {
+    const awaitingApproval = cfg.status === "Accepted";
+    // Show ordered-vs-booked difference on a couple of records for PC Ops.
+    const bookedUnits = cfg.status === "Exception" ? Math.max(1, Math.round(totalUnits * 0.93)) : totalUnits;
     booking = {
       id: `BR-${cfg.id.slice(3)}`,
       poId: cfg.id,
       supplierId: cfg.supplierId,
+      requestedByRole: "Agent",
       requestedDate: addDays(new Date(orderReceivedDate), 5),
       cargoReadyDate,
       mode: cfg.mode,
-      units: totalUnits,
-      status: "Confirmed",
-      bookingReference: `BK-${cfg.id.slice(3)}-01`,
-      decidedAt: addDays(new Date(orderReceivedDate), 5) + "T14:22:00Z",
+      units: bookedUnits,
+      poQuantityOrdered: totalUnits,
+      status: awaitingApproval ? "Pending" : "Confirmed",
+      ...(awaitingApproval
+        ? {}
+        : {
+            decidedByRole: "Pro Carrier Ops" as const,
+            decidedBy: "James Coombs",
+            decidedAt: addDays(new Date(orderReceivedDate), 5) + "T14:22:00Z",
+            bookingReference: `BK-${cfg.id.slice(3)}-01`,
+          }),
     };
   }
 
@@ -477,7 +511,7 @@ const SEED_CONFIGS: POSeedConfig[] = [
   },
   {
     id: "PO-83048", supplierId: "SUP-101", agentId: "AG-201", origin: "Hangzhou, CN", originCountry: "China",
-    mode: "Air", channel: "Portal", cargoOffsetFromToday: 7, deliveryOffsetFromToday: 14, status: "Pending Acceptance",
+    mode: "Air", channel: "Manual", cargoOffsetFromToday: 7, deliveryOffsetFromToday: 14, status: "Pending Acceptance",
     lines: [{ code: "BK-ART-HC-192", qty: 800, price: 8.20 }],
   },
   {
@@ -495,20 +529,20 @@ const SEED_CONFIGS: POSeedConfig[] = [
   },
   {
     id: "PO-83052", supplierId: "SUP-102", agentId: "AG-205", origin: "Mumbai, IN", originCountry: "India",
-    mode: "Air", channel: "Portal", cargoOffsetFromToday: 1, deliveryOffsetFromToday: 8, status: "Booked",
+    mode: "Air", channel: "Manual", cargoOffsetFromToday: 1, deliveryOffsetFromToday: 8, status: "Booked",
     lines: [{ code: "GFT-CARD-A5-XMS", qty: 1500, price: 0.65 }],
     exceptions: [
-      { type: "Booking rule breach", severity: "high", description: "Booking submitted 1 day after Air mode cut-off (rule BR-002).", daysAgo: 0 },
+      { type: "Booking rejected", severity: "high", description: "Booking submitted 1 day after Air mode cut-off (rule BR-002).", daysAgo: 0 },
     ],
   },
   {
     id: "PO-83055", supplierId: "SUP-103", agentId: "AG-202", origin: "Ho Chi Minh, VN", originCountry: "Vietnam",
-    mode: "Sea", channel: "XML", cargoOffsetFromToday: -2, deliveryOffsetFromToday: 30, status: "Booked",
+    mode: "Sea", channel: "API", cargoOffsetFromToday: -2, deliveryOffsetFromToday: 30, status: "Booked",
     lines: [{ code: "BK-NOV-PB-320", qty: 7200, price: 1.15 }],
   },
   {
     id: "PO-83057", supplierId: "SUP-103", agentId: "AG-202", origin: "Ho Chi Minh, VN", originCountry: "Vietnam",
-    mode: "Sea", channel: "XML", cargoOffsetFromToday: 9, deliveryOffsetFromToday: 41, status: "Pending Acceptance",
+    mode: "Sea", channel: "API", cargoOffsetFromToday: 9, deliveryOffsetFromToday: 41, status: "Pending Acceptance",
     lines: [
       { code: "BK-CHILD-A4-HC-128", qty: 5500, price: 2.55, matched: false },
       { code: "BK-COOK-HC-256", qty: 1200, price: 4.80 },
@@ -517,12 +551,12 @@ const SEED_CONFIGS: POSeedConfig[] = [
   },
   {
     id: "PO-83059", supplierId: "SUP-104", agentId: "AG-203", origin: "Istanbul, TR", originCountry: "Turkey",
-    mode: "Road", channel: "Portal", cargoOffsetFromToday: -5, deliveryOffsetFromToday: 4, status: "In Transit",
+    mode: "Road", channel: "Manual", cargoOffsetFromToday: -5, deliveryOffsetFromToday: 4, status: "In Transit",
     lines: [{ code: "STN-NB-A5-DOT", qty: 4200, price: 1.45 }],
   },
   {
     id: "PO-83060", supplierId: "SUP-104", agentId: "AG-203", origin: "Istanbul, TR", originCountry: "Turkey",
-    mode: "Road", channel: "Portal", cargoOffsetFromToday: 11, deliveryOffsetFromToday: 21, status: "Accepted",
+    mode: "Road", channel: "Manual", cargoOffsetFromToday: 11, deliveryOffsetFromToday: 21, status: "Accepted",
     lines: [{ code: "STN-NB-A5-LIN", qty: 3800, price: 1.05 }],
   },
   {
@@ -553,13 +587,13 @@ const SEED_CONFIGS: POSeedConfig[] = [
   },
   {
     id: "PO-82998", supplierId: "SUP-103", agentId: "AG-202", origin: "Ho Chi Minh, VN", originCountry: "Vietnam",
-    mode: "Sea", channel: "XML", cargoOffsetFromToday: -50, deliveryOffsetFromToday: -15, status: "Delivered",
+    mode: "Sea", channel: "API", cargoOffsetFromToday: -50, deliveryOffsetFromToday: -15, status: "Delivered",
     lines: [{ code: "BK-NOV-PB-320", qty: 6000, price: 1.18 }],
   },
   // — Cancelled / exception heavy —
   {
     id: "PO-83020", supplierId: "SUP-104", agentId: "AG-203", origin: "Istanbul, TR", originCountry: "Turkey",
-    mode: "Road", channel: "Portal", cargoOffsetFromToday: -10, deliveryOffsetFromToday: 1, status: "Exception",
+    mode: "Road", channel: "Manual", cargoOffsetFromToday: -10, deliveryOffsetFromToday: 1, status: "Exception",
     lines: [{ code: "STN-NB-A5-DOT", qty: 2200, price: 1.40 }],
     exceptions: [
       { type: "Missed milestone", severity: "high", description: "Pickup missed by 3 days — driver no-show twice.", daysAgo: 3 },

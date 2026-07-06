@@ -15,7 +15,7 @@ export function OpsDashboard() {
     p.lines.filter((l) => !l.matched).map((l) => ({ poId: p.id, line: l }))
   );
 
-  const channelBreakdown = ["API", "EDI", "CSV", "XML", "Portal"].map((c) => ({
+  const channelBreakdown = (["Manual", "CSV", "API"] as const).map((c) => ({
     channel: c,
     count: PURCHASE_ORDERS.filter((p) => p.channel === c).length,
   }));

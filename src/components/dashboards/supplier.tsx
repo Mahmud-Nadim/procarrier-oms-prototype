@@ -3,7 +3,7 @@
 import Link from "next/link";
 import {
   ShoppingCart, AlertTriangle, ArrowRight, ChevronRight, FileUp,
-  Boxes, Calendar, MessageCircle, CheckCircle2,
+  Boxes, Calendar, CheckCircle2, FilePlus2, Users,
 } from "lucide-react";
 import { PageHeader, StatsCard, POStatusPill, Pill, SectionHeading, MilestoneStatusPill, BookingStatusPill } from "@/components/ui";
 import { PURCHASE_ORDERS, MILESTONES, EXCEPTIONS, SUPPLIERS, BOOKING_REQUESTS } from "@/lib/seed";
@@ -17,9 +17,11 @@ export function SupplierDashboard() {
   const myPOs = PURCHASE_ORDERS.filter((p) => p.supplierId === supplier.id);
   const open = myPOs.filter((p) => !["Delivered", "Cancelled"].includes(p.status));
   const pendingAcceptance = myPOs.filter((p) => p.status === "Pending Acceptance");
-  const pendingMilestones = MILESTONES
+  // Milestones are OPEN — not assigned to a specific party — so either the
+  // supplier or the origin agent can update any outstanding step.
+  const openMilestones = MILESTONES
     .filter((m) => myPOs.some((p) => p.id === m.poId))
-    .filter((m) => m.owner === "Supplier" && (m.status === "Pending" || m.status === "Late"))
+    .filter((m) => m.status === "Pending" || m.status === "Late")
     .sort((a, b) => a.expectedDate.localeCompare(b.expectedDate));
   const myExceptions = EXCEPTIONS.filter((e) => myPOs.some((p) => p.id === e.poId) && e.status === "Open");
 
@@ -32,10 +34,13 @@ export function SupplierDashboard() {
       <PageHeader
         eyebrow={supplier.name}
         title="Supplier Workspace"
-        subtitle="Submit booking requests against open POs, upload documents, and confirm milestones."
+        subtitle="Create POs, submit booking requests against open POs, upload documents, and keep the critical path up to date."
         trailing={
           <div className="flex flex-wrap gap-2">
-            <Link href="/orders" className="btn-primary">
+            <Link href="/orders/new" className="btn-primary">
+              <FilePlus2 size={16} /> Create PO
+            </Link>
+            <Link href="/orders" className="btn-ghost">
               <Boxes size={16} /> Submit booking request
             </Link>
             <button className="btn-ghost">
@@ -45,10 +50,18 @@ export function SupplierDashboard() {
         }
       />
 
+      {/* Shared-workspace note */}
+      <div className="horizon-panel mb-5 flex items-start gap-3 rounded-3xl p-4 sm:p-5">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-teal-10 text-teal-shade"><Users size={18} /></div>
+        <div className="text-[12px] text-ink-muted">
+          <span className="font-semibold text-midnight">Supplier and Origin Agent share the same workspace</span> — the agent acts on the supplier&apos;s behalf with identical capabilities. Milestones are <span className="font-semibold text-midnight">open</span>: either party can update any outstanding step.
+        </div>
+      </div>
+
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatsCard icon={<ShoppingCart size={22} />} label="Open POs assigned to you" value={open.length} accent="#322a6d" />
         <StatsCard icon={<Calendar size={22} />} label="Awaiting your acceptance" value={pendingAcceptance.length} accent="#f4990b" subline="Confirm within 3 days" />
-        <StatsCard icon={<CheckCircle2 size={22} />} label="Milestones owed by you" value={pendingMilestones.length} accent="#4bbbba" />
+        <StatsCard icon={<CheckCircle2 size={22} />} label="Open milestones" value={openMilestones.length} accent="#4bbbba" />
         <StatsCard icon={<AlertTriangle size={22} />} label="Open exceptions" value={myExceptions.length} accent="#e83271" />
       </div>
 
@@ -88,11 +101,11 @@ export function SupplierDashboard() {
         {/* Milestones owed */}
         <div className="horizon-panel rounded-3xl p-5 sm:p-6">
           <SectionHeading
-            title="Milestones owed by you"
-            subtitle="Tick to confirm — backfills upstream automatically"
+            title="Open critical-path milestones"
+            subtitle="Either party may confirm — backfills upstream automatically"
           />
           <div className="mt-4 space-y-2.5">
-            {pendingMilestones.slice(0, 6).map((m) => (
+            {openMilestones.slice(0, 6).map((m) => (
               <Link key={m.id} href={`/orders/${m.poId}#milestones`} className="block rounded-2xl border border-midnight-10/60 bg-white/70 p-3 transition hover:bg-white">
                 <div className="flex items-center justify-between">
                   <div className="font-semibold text-midnight text-[13px]">{m.label}</div>
@@ -101,7 +114,7 @@ export function SupplierDashboard() {
                 <div className="mt-1 text-[11px] text-ink-muted">{m.poId} · expected {formatDate(m.expectedDate)} ({relativeFromToday(m.expectedDate)})</div>
               </Link>
             ))}
-            {pendingMilestones.length === 0 && (
+            {openMilestones.length === 0 && (
               <div className="rounded-2xl bg-[#e8f5e0] p-3 text-[12px] font-medium text-[#356b2a]">No outstanding milestones.</div>
             )}
           </div>

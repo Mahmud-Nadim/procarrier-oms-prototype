@@ -3,11 +3,13 @@
 import { useState } from "react";
 import {
   Check, AlertTriangle, Clock, User, RotateCcw, Edit3, X,
-  ChevronDown, Tag, ArrowDownToLine, Info, Eye, Anchor,
+  ChevronDown, Tag, ArrowDownToLine, Info, Anchor,
 } from "lucide-react";
-import { Milestone, MilestoneType } from "@/lib/types";
+import { ExceptionRecord, Milestone, MilestoneType } from "@/lib/types";
 import { MilestoneStatusPill, Pill } from "@/components/ui";
 import { formatDate, relativeFromToday } from "@/lib/format";
+import { exceptionsForPO } from "@/lib/seed";
+import { useRole } from "@/lib/role-context";
 
 interface Props {
   milestones: Milestone[];
@@ -59,8 +61,20 @@ export function CriticalPathView({ milestones, poId, canEdit = true }: Props) {
   const [recalcBaseId, setRecalcBaseId] = useState<string | null>(null);
   const [recalcDoneFrom, setRecalcDoneFrom] = useState<string | null>(null);
   const [localConfirmed, setLocalConfirmed] = useState<Set<string>>(new Set());
-  const [acknowledged, setAcknowledged] = useState<Set<string>>(new Set());
   const [openHistory, setOpenHistory] = useState<string | null>(null);
+
+  // Exceptions are visible to both parties; each resolves for their own view.
+  // The milestone flag reflects the CURRENT viewer's resolution state.
+  const { role } = useRole();
+  const viewerParty = role === "ops" ? "Pro Carrier Ops" : role === "client-admin" ? "Client" : null;
+  const poExceptions = exceptionsForPO(poId);
+  const exceptionForMilestone = (m: Milestone): ExceptionRecord | undefined =>
+    poExceptions.find((e) => e.milestoneId === m.id) ??
+    (m.exceptionId ? poExceptions.find((e) => e.id === m.exceptionId) : undefined);
+  const resolvedForViewer = (e: ExceptionRecord): boolean =>
+    viewerParty === "Pro Carrier Ops" ? Boolean(e.pcResolvedAt) :
+    viewerParty === "Client" ? Boolean(e.clientResolvedAt) :
+    Boolean(e.pcResolvedAt && e.clientResolvedAt);
 
   const ordered = [...milestones].sort((a, b) => a.sequence - b.sequence);
   const baseMilestone = ordered.find((m) => m.id === recalcBaseId) ?? null;
@@ -156,6 +170,7 @@ export function CriticalPathView({ milestones, poId, canEdit = true }: Props) {
             const isExpanded = openHistory === m.id;
             const prev = idx > 0 ? ordered[idx - 1] : null;
             const next = idx < ordered.length - 1 ? ordered[idx + 1] : null;
+            const exception = exceptionForMilestone(m);
 
             // Buffer (slack) to the next milestone and the realised delay on this one.
             const bufferDays = next ? daysBetween(m.expectedDate, next.expectedDate) : null;
@@ -191,6 +206,18 @@ export function CriticalPathView({ milestones, poId, canEdit = true }: Props) {
                           <span className="inline-flex items-center gap-1 text-[10px] font-medium text-ink-subtle" title="Customer-facing label over a fixed milestone type">
                             <Tag size={10} /> {CANONICAL[m.type]}
                           </span>
+                        )}
+                        {/* Exception flag on the step — active vs resolved for the current viewer */}
+                        {exception && (
+                          resolvedForViewer(exception) ? (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-[#e8f5e0] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-[#356b2a]" title="Exception resolved for your view">
+                              <Check size={11} strokeWidth={3} /> Exception resolved
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-fuchsia-10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-fuchsia-shade" title="Active exception on this step">
+                              <AlertTriangle size={11} /> Exception
+                            </span>
+                          )
                         )}
                       </div>
 
@@ -306,18 +333,10 @@ export function CriticalPathView({ milestones, poId, canEdit = true }: Props) {
                       <ChevronDown size={12} className={`transition ${isExpanded ? "rotate-180" : ""}`} />
                       Activity log ({m.history.length})
                     </button>
-                    {m.exceptionId && (
-                      acknowledged.has(m.id) ? (
-                        <Pill tone="green">Exception read</Pill>
-                      ) : (
-                        <button
-                          onClick={() => setAcknowledged(new Set(acknowledged).add(m.id))}
-                          className="inline-flex items-center gap-1 rounded-full bg-fuchsia-10 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-fuchsia-shade hover:bg-fuchsia-10/70"
-                          title="Acknowledge the exception (chat is not available at PO level at launch)"
-                        >
-                          <Eye size={11} /> Mark exception as read
-                        </button>
-                      )
+                    {exception && (
+                      <span className="text-[11px] text-ink-muted">
+                        PC Ops: {exception.pcResolvedAt ? "resolved" : "open"} · Client: {exception.clientResolvedAt ? "resolved" : "open"}
+                      </span>
                     )}
                   </div>
                   {isExpanded && (

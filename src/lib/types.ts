@@ -17,6 +17,11 @@ export type POStatus =
   | "Exception";
 
 export type BookingStatus = "Pending" | "Confirmed" | "Rejected" | "Cancelled";
+
+// PO ingestion channels. Per client (Jul 2026): EDI and Interchange XML are
+// deferred until the first client integration; launch supports CSV upload,
+// manual entry, and a create/amend/cancel API (parity with the shipment API).
+export type POChannel = "API" | "CSV" | "Manual";
 export type MilestoneStatus =
   | "Pending"
   | "Confirmed"
@@ -27,7 +32,7 @@ export type MilestoneStatus =
 
 export type ExceptionType =
   | "Missed milestone"
-  | "Booking rule breach"
+  | "Booking rejected"
   | "Quantity shortfall"
   | "Cancellation trigger";
 export type ExceptionSeverity = "low" | "medium" | "high" | "critical";
@@ -68,14 +73,17 @@ export interface PurchaseOrder {
   id: string;            // PO-XXXXX
   version: number;
   clientId: string;
-  supplierId: string;
+  supplierId: string; // exactly one supplier per PO — a PO is the buyer↔supplier contract
+  // Origin agent is assigned by Pro Carrier from an origin-country → agent rule
+  // (one agent per country, maintained in Horizon backend — no client-facing UI).
+  // This field is visible to PC Ops only, never to client admins.
   agentId?: string;
   origin: string;        // city + country
   originCountry: string;
   destination: string;
   destinationCountry: string;
   mode: TransportMode;
-  channel: "API" | "EDI" | "CSV" | "XML" | "Portal";
+  channel: POChannel;
   cargoReadyDate: string;
   deliveryRequiredDate: string;
   createdAt: string;
@@ -97,7 +105,7 @@ export interface POVersion {
   date: string;
   changedBy: string;
   changeSummary: string;
-  channel: PurchaseOrder["channel"];
+  channel: POChannel;
 }
 
 export interface PODocument {
@@ -113,15 +121,20 @@ export interface BookingRequest {
   id: string;
   poId: string;
   supplierId: string;
+  requestedByRole: "Supplier" | "Agent"; // agent may book on the supplier's behalf
   requestedDate: string;
   cargoReadyDate: string;
   mode: TransportMode;
-  units: number;
-  status: BookingStatus;
-  ruleCode?: string;
-  ruleMessage?: string;
-  bookingReference?: string;
+  units: number; // booked quantity
+  poQuantityOrdered: number; // original PO quantity — PC Ops sees ordered vs booked
+  status: BookingStatus; // Pending = awaiting PC Ops approval
+  // Launch flow: no rule automation. Every booking is manually approved or
+  // rejected by a Pro Carrier Ops user; on rejection the supplier is notified.
+  decidedByRole?: "Pro Carrier Ops";
+  decidedBy?: string;
   decidedAt?: string;
+  rejectionReason?: string;
+  bookingReference?: string;
 }
 
 export interface Milestone {
@@ -166,15 +179,28 @@ export interface MilestoneHistoryEntry {
 export interface ExceptionRecord {
   id: string;
   poId: string;
+  milestoneId?: string; // the milestone step this exception is flagged against
   type: ExceptionType;
   severity: ExceptionSeverity;
+  status: "Open" | "Resolved";
   raisedAt: string;
   description: string;
-  ownerRole: "Supplier" | "Agent" | "Forwarder" | "Client";
-  status: "Open" | "Acknowledged" | "Resolved";
-  acknowledgedAt?: string;
-  resolvedAt?: string;
+  // Every exception is visible to BOTH parties (PC Ops and Client). Each party
+  // resolves it independently for their own view; the audit trail records both.
+  pcResolvedAt?: string;
+  pcResolvedBy?: string;
+  clientResolvedAt?: string;
+  clientResolvedBy?: string;
   notes: string[];
+  audit: ExceptionAuditEntry[];
+}
+
+export interface ExceptionAuditEntry {
+  at: string;
+  by: string;
+  party: "Pro Carrier Ops" | "Client";
+  action: "raised" | "resolved" | "reopened" | "note";
+  note?: string;
 }
 
 export interface ThirdPartyShipment {

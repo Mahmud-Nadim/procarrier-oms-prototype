@@ -50,7 +50,7 @@ export default function TmsHandoverPage() {
       <PageHeader
         eyebrow="Neurored TMS"
         title="TMS Handover & Consolidation"
-        subtitle="Validated orders are converted to shipments and created in Neurored via API. Calls are queued and retried; failures surface as exceptions — never silently dropped."
+        subtitle="A booked PO creates an order (booking) in Neurored — minimal data, no SCAC/container yet. The order links via Snowflake and first appears as a pending shipment; when Neurored converts it to a shipment, the SCAC/container/ETD feed in and Gatehouse tracking begins. One PO can split into one or more shipments."
         trailing={<button className="btn-ghost"><RefreshCw size={16} /> Resync all</button>}
       />
 
@@ -65,7 +65,7 @@ export default function TmsHandoverPage() {
       <div className="horizon-panel mb-6 flex items-start gap-3 rounded-3xl p-4 sm:p-5">
         <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-teal-10 text-teal-shade"><ArrowLeftRight size={18} /></div>
         <div className="text-[12px] text-ink-muted">
-          The handover pipeline runs <span className="font-semibold text-midnight">asynchronously</span> and does not block portal access. Neurored API calls are <span className="font-semibold text-midnight">queued and retried on failure</span>; shipment-creation failures are surfaced as exceptions in the ops view. Once created, status updates from Neurored sync <span className="font-semibold text-midnight">bi-directionally</span> back into the OMS order view.
+          Handover is a <span className="font-semibold text-midnight">two-stage</span> flow. Booking a PO creates an <span className="font-semibold text-midnight">order</span> in Neurored using only booking-process data (no MBL, SCAC, container or ETD required at this point) and returns a shipment reference. The standard Snowflake↔Horizon visibility link then feeds the record back — it first shows as a <span className="font-semibold text-midnight">pending</span> shipment. When Pro Carrier later converts the order to a <span className="font-semibold text-midnight">shipment</span> in the TMS, the SCAC and container details arrive and Gatehouse tracking kicks off exactly as it does today. The pipeline runs <span className="font-semibold text-midnight">asynchronously</span>; API calls are <span className="font-semibold text-midnight">queued and retried</span>, failures surface as exceptions, and the link between booked orders and their shipment record is maintained in Snowflake so status syncs <span className="font-semibold text-midnight">bi-directionally</span>.
         </div>
       </div>
 

@@ -17,6 +17,7 @@ import { Modal, ModalField } from "@/components/modal";
 import { CriticalPathView } from "@/components/critical-path-view";
 import { formatCurrency, formatDate, formatDateTime, formatNumber, relativeFromToday } from "@/lib/format";
 import { useRole } from "@/lib/role-context";
+import { ExceptionRecord, ExceptionAuditEntry } from "@/lib/types";
 
 import type { LucideIcon } from "lucide-react";
 type Tab = "overview" | "lines" | "critical-path" | "exceptions" | "documents" | "activity";
@@ -38,11 +39,37 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
   const booking = bookingForPO(po.id);
   const supplier = SUPPLIERS.find((s) => s.id === po.supplierId);
   const agent = AGENTS.find((a) => a.id === po.agentId);
-  const { role } = useRole();
+  const { role, identity } = useRole();
   const [tab, setTab] = useState<Tab>("overview");
-  const [readExc, setReadExc] = useState<Set<string>>(new Set());
   const [cancelOpen, setCancelOpen] = useState(false);
   const [uploadOpen, setUploadOpen] = useState(false);
+
+  // Dual-party exceptions: PC Ops and the Client each resolve for their own
+  // view; supplier/agent are read-only. Local state overlays the seed data.
+  const party: "Pro Carrier Ops" | "Client" | null =
+    role === "ops" ? "Pro Carrier Ops" : role === "client-admin" ? "Client" : null;
+  const [excRecords, setExcRecords] = useState<ExceptionRecord[]>(() =>
+    exceptions.map((e) => ({ ...e, notes: [...e.notes], audit: [...e.audit] })),
+  );
+  const resolvedForMe = (e: ExceptionRecord): boolean =>
+    party === "Pro Carrier Ops" ? Boolean(e.pcResolvedAt) :
+    party === "Client" ? Boolean(e.clientResolvedAt) :
+    Boolean(e.pcResolvedAt && e.clientResolvedAt);
+  const resolveExc = (excId: string) => {
+    if (!party) return;
+    const at = new Date().toISOString();
+    setExcRecords((prev) =>
+      prev.map((e) => {
+        if (e.id !== excId) return e;
+        const already = party === "Pro Carrier Ops" ? e.pcResolvedAt : e.clientResolvedAt;
+        if (already) return e;
+        const entry: ExceptionAuditEntry = { at, by: identity.name, party, action: "resolved", note: `Resolved for the ${party} view` };
+        return party === "Pro Carrier Ops"
+          ? { ...e, pcResolvedAt: at, pcResolvedBy: identity.name, audit: [...e.audit, entry] }
+          : { ...e, clientResolvedAt: at, clientResolvedBy: identity.name, audit: [...e.audit, entry] };
+      }),
+    );
+  };
 
   return (
     <>
@@ -186,26 +213,37 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
               )}
             </div>
 
-            {exceptions.length > 0 && (
+            {excRecords.length > 0 && (
               <div>
-                <SectionHeading title="Exceptions" subtitle="Mark as read or annotate from here" />
+                <SectionHeading title="Exceptions" subtitle="Visible to both Pro Carrier Ops and the client — each side resolves for its own view." />
                 <div className="mt-3 space-y-2.5">
-                  {exceptions.map((e) => (
-                    <div key={e.id} className="rounded-2xl border border-fuchsia-10 bg-fuchsia-10/40 p-3">
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-2">
-                          <span className="text-[12px] font-bold uppercase tracking-wider text-fuchsia-shade">{e.type}</span>
-                          <SeverityPill severity={e.severity} />
-                          <Pill tone={e.status === "Open" ? "fuchsia" : e.status === "Acknowledged" ? "orange" : "green"}>{e.status}</Pill>
+                  {excRecords.map((e) => {
+                    const resolved = resolvedForMe(e);
+                    return (
+                      <div key={e.id} className={`rounded-2xl border p-3 ${resolved ? "border-[#cfe6c2] bg-[#e8f5e0]/50" : "border-fuchsia-10 bg-fuchsia-10/40"}`}>
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className={`text-[12px] font-bold uppercase tracking-wider ${resolved ? "text-[#356b2a]" : "text-fuchsia-shade"}`}>{e.type}</span>
+                            <SeverityPill severity={e.severity} />
+                            <Pill tone={resolved ? "green" : "fuchsia"}>{resolved ? "Resolved" : "Active"}</Pill>
+                          </div>
+                          {party && (resolved ? (
+                            <Pill tone="green">Resolved for you</Pill>
+                          ) : (
+                            <button onClick={() => resolveExc(e.id)} className="rounded-full bg-white px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-fuchsia-shade hover:bg-fuchsia-10">
+                              Resolve
+                            </button>
+                          ))}
                         </div>
-                        <button className="rounded-full bg-white px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-fuchsia-shade hover:bg-fuchsia-10">
-                          Mark as read
-                        </button>
+                        <div className="mt-2 text-[13px] text-ink">{e.description}</div>
+                        <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-ink-muted">
+                          <span>Raised {formatDateTime(e.raisedAt)}</span>
+                          <span>PC Ops: {e.pcResolvedAt ? `resolved ${formatDate(e.pcResolvedAt)}` : "open"}</span>
+                          <span>Client: {e.clientResolvedAt ? `resolved ${formatDate(e.clientResolvedAt)}` : "open"}</span>
+                        </div>
                       </div>
-                      <div className="mt-2 text-[13px] text-ink">{e.description}</div>
-                      <div className="mt-1.5 text-[11px] text-ink-muted">Raised {formatDateTime(e.raisedAt)}</div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             )}
@@ -278,19 +316,19 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
         <div className="horizon-panel rounded-3xl p-5 sm:p-6">
           <SectionHeading
             title="Exceptions"
-            subtitle="Raised only when a change impacts the next milestone. Acknowledge with mark-as-read — chat is not available at PO level at launch."
-            trailing={<Pill tone={exceptions.length ? "fuchsia" : "green"}>{exceptions.length} total</Pill>}
+            subtitle="Every exception is visible to both Pro Carrier Ops and the client. Each side resolves it for its own view; the audit trail records both."
+            trailing={<Pill tone={excRecords.length ? "fuchsia" : "green"}>{excRecords.length} total</Pill>}
           />
-          {exceptions.length === 0 ? (
+          {excRecords.length === 0 ? (
             <div className="mt-4 rounded-2xl bg-[#e8f5e0] p-4 text-[13px] font-medium text-[#356b2a]">No exceptions on this order — every milestone is within its buffer.</div>
           ) : (
             <div className="mt-4 space-y-3">
-              {exceptions.map((e) => {
-                const linked = milestones.find((m) => m.exceptionId === e.id);
-                const read = readExc.has(e.id);
+              {excRecords.map((e) => {
+                const linked = milestones.find((m) => e.milestoneId === m.id || m.exceptionId === e.id);
+                const resolved = resolvedForMe(e);
                 return (
                   <div key={e.id} className="grid gap-3 rounded-2xl border border-midnight-10/60 bg-white/70 p-4 md:grid-cols-2">
-                    {/* Left — what changed (timeline-style) */}
+                    {/* Left — what changed + audit trail */}
                     <div className="md:border-r md:border-midnight-10/50 md:pr-4">
                       <div className="text-[10px] font-bold uppercase tracking-wider text-ink-muted">What changed</div>
                       {linked ? (
@@ -304,25 +342,39 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
                       ) : (
                         <div className="mt-1.5 text-[12px] text-ink-muted">Order-level exception</div>
                       )}
+                      <div className="mt-3 text-[10px] font-bold uppercase tracking-wider text-ink-muted">Audit trail</div>
+                      <div className="mt-1.5 space-y-1.5">
+                        {e.audit.map((a, i) => (
+                          <div key={i} className="text-[11px] text-ink-muted">
+                            <span className="font-semibold text-midnight capitalize">{a.action}</span>
+                            {" · "}{a.party} · {formatDateTime(a.at)}
+                            <div className="text-ink-subtle">by {a.by}{a.note ? ` — ${a.note}` : ""}</div>
+                          </div>
+                        ))}
+                      </div>
                     </div>
-                    {/* Right — the exception */}
+                    {/* Right — the exception + dual-party resolution */}
                     <div>
                       <div className="flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <span className="text-[12px] font-bold uppercase tracking-wider text-fuchsia-shade">{e.type}</span>
                           <SeverityPill severity={e.severity} />
-                          <Pill tone={e.status === "Open" ? "fuchsia" : e.status === "Acknowledged" ? "orange" : "green"}>{e.status}</Pill>
+                          <Pill tone={resolved ? "green" : "fuchsia"}>{resolved ? "Resolved" : "Active"}</Pill>
                         </div>
-                        {read ? (
-                          <Pill tone="green">Read</Pill>
+                        {party && (resolved ? (
+                          <Pill tone="green">Resolved for you</Pill>
                         ) : (
-                          <button onClick={() => setReadExc(new Set(readExc).add(e.id))} className="rounded-full bg-white px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-fuchsia-shade hover:bg-fuchsia-10">
-                            Mark as read
+                          <button onClick={() => resolveExc(e.id)} className="btn-primary">
+                            <CheckCircle2 size={14} /> Resolve for {party}
                           </button>
-                        )}
+                        ))}
                       </div>
                       <div className="mt-2 text-[13px] text-ink">{e.description}</div>
-                      <div className="mt-1.5 text-[11px] text-ink-muted">Raised {formatDateTime(e.raisedAt)} · owner {e.ownerRole}</div>
+                      <div className="mt-1.5 text-[11px] text-ink-muted">Raised {formatDateTime(e.raisedAt)}</div>
+                      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                        <ResolutionBox label="Pro Carrier Ops" at={e.pcResolvedAt} by={e.pcResolvedBy} you={party === "Pro Carrier Ops"} />
+                        <ResolutionBox label="Client" at={e.clientResolvedAt} by={e.clientResolvedBy} you={party === "Client"} />
+                      </div>
                     </div>
                   </div>
                 );
@@ -418,6 +470,20 @@ function PartyRow({ role, name, sub }: { role: string; name: string; sub: string
       <div className="text-[11px] font-bold uppercase tracking-wider text-ink-muted">{role}</div>
       <div className="mt-1 font-semibold text-midnight">{name}</div>
       <div className="text-[12px] text-ink-muted">{sub}</div>
+    </div>
+  );
+}
+
+function ResolutionBox({ label, at, by, you }: { label: string; at?: string; by?: string; you: boolean }) {
+  const resolved = Boolean(at);
+  return (
+    <div className={`rounded-xl border p-2.5 ${resolved ? "border-[#cfe6c2] bg-[#e8f5e0]/60" : "border-fuchsia-10 bg-fuchsia-10/30"}`}>
+      <div className={`flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider ${resolved ? "text-[#356b2a]" : "text-fuchsia-shade"}`}>
+        {resolved ? <CheckCircle2 size={12} /> : <AlertTriangle size={12} />} {label}{you ? " (you)" : ""}
+      </div>
+      <div className="mt-1 text-[11px] text-ink-muted">
+        {resolved ? `Resolved by ${you ? "you" : by} on ${formatDateTime(at)}` : "Open — not yet resolved on this side"}
+      </div>
     </div>
   );
 }
